@@ -3,6 +3,7 @@ import { exec } from 'child_process';
 import { Response } from 'express';
 import {
   createReadStream,
+  createWriteStream,
   existsSync,
   mkdirSync,
   statSync,
@@ -20,6 +21,7 @@ export interface VideoInfo {
   sizeFormatted: string;
   thumbnailUrl: string;
   duration?: number;
+  uploadedAt?: Date;
 }
 
 export interface StreamInfo {
@@ -32,10 +34,109 @@ export interface StreamInfo {
   chunksize: number;
 }
 
+export interface UploadResult {
+  success: boolean;
+  filename?: string;
+  error?: string;
+  size?: number;
+  sizeFormatted?: string;
+}
+
 @Injectable()
 export class VideoService {
   private readonly logger = new Logger(VideoService.name);
   private readonly dataPath = join(process.cwd(), 'data');
+  private readonly maxFileSize = 500 * 1024 * 1024; // 500MB
+  private readonly allowedExtensions = [
+    '.mp4',
+    '.avi',
+    '.mov',
+    '.mkv',
+    '.webm',
+  ];
+
+  async uploadVideo(
+    file: Express.Multer.File,
+    requestId: string,
+  ): Promise<UploadResult> {
+    try {
+      this.logger.log(
+        `[${requestId}] 📤 Starting video upload: ${file.originalname}`,
+      );
+
+      // Validate file size
+      if (file.size > this.maxFileSize) {
+        this.logger.warn(
+          `[${requestId}] ⚠️ File too large: ${this.formatBytes(file.size)}`,
+        );
+        return {
+          success: false,
+          error: `File size exceeds maximum limit of ${this.formatBytes(this.maxFileSize)}`,
+        };
+      }
+
+      // Validate file extension
+      const fileExtension = file.originalname
+        .toLowerCase()
+        .substring(file.originalname.lastIndexOf('.'));
+      if (!this.allowedExtensions.includes(fileExtension)) {
+        this.logger.warn(
+          `[${requestId}] ⚠️ Invalid file type: ${fileExtension}`,
+        );
+        return {
+          success: false,
+          error: `Invalid file type. Allowed types: ${this.allowedExtensions.join(', ')}`,
+        };
+      }
+
+      // Generate unique filename
+      const timestamp = Date.now();
+      const safeFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const filename = `${timestamp}_${safeFilename}`;
+      const filePath = join(this.dataPath, filename);
+
+      // Ensure data directory exists
+      if (!existsSync(this.dataPath)) {
+        mkdirSync(this.dataPath, { recursive: true });
+      }
+
+      // Write file to disk
+      const writeStream = createWriteStream(filePath);
+      writeStream.write(file.buffer);
+      writeStream.end();
+
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', () => resolve());
+        writeStream.on('error', reject);
+      });
+
+      this.logger.log(
+        `[${requestId}] ✅ Video uploaded successfully: ${filename}`,
+      );
+
+      // Generate thumbnail in background
+      this.generateThumbnailForVideo(filename, requestId).catch((error) => {
+        this.logger.error(
+          `[${requestId}] ❌ Thumbnail generation failed: ${error.message}`,
+        );
+      });
+
+      return {
+        success: true,
+        filename,
+        size: file.size,
+        sizeFormatted: this.formatBytes(file.size),
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`[${requestId}] ❌ Upload failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: 'Failed to upload video',
+      };
+    }
+  }
 
   async getAllVideos(): Promise<VideoInfo[]> {
     try {

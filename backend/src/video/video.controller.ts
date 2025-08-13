@@ -1,4 +1,14 @@
-import { Controller, Get, Headers, Param, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { VideoService } from './video.service';
 
@@ -9,6 +19,13 @@ export class VideoController {
   @Get()
   getAllVideos() {
     return this.videoService.getAllVideos();
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('video'))
+  uploadVideo(@UploadedFile() file: Express.Multer.File) {
+    const requestId = Math.random().toString(36).substring(7);
+    return this.videoService.uploadVideo(file, requestId);
   }
 
   @Get('thumbnail/:filename')
