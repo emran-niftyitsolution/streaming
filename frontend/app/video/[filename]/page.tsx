@@ -10,7 +10,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface VideoInfo {
   filename: string;
@@ -24,6 +24,7 @@ export default function VideoPage() {
   const params = useParams();
   const router = useRouter();
   const filename = params.filename as string;
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,9 @@ export default function VideoPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
+  const [buffering, setBuffering] = useState(false);
+  const [bufferedProgress, setBufferedProgress] = useState(0);
+  const [chunkInfo, setChunkInfo] = useState({ loaded: 0, total: 0 });
 
   useEffect(() => {
     const fetchVideoInfo = async () => {
@@ -59,6 +63,15 @@ export default function VideoPage() {
       fetchVideoInfo();
     }
   }, [filename]);
+
+  // Handle autoplay after video info is loaded
+  useEffect(() => {
+    if (videoRef.current && videoInfo && !isPlaying) {
+      videoRef.current.play().catch(() => {
+        console.log("Autoplay prevented by browser");
+      });
+    }
+  }, [videoInfo, isPlaying]);
 
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
@@ -104,6 +117,47 @@ export default function VideoPage() {
         video.requestFullscreen();
       }
     }
+  };
+
+  // Handle chunked streaming events
+  const handleWaiting = () => {
+    setBuffering(true);
+    console.log("🔄 Video waiting for chunks...");
+  };
+
+  const handleCanPlay = () => {
+    setBuffering(false);
+    console.log("✅ Video can play - chunks loaded");
+  };
+
+  const handleProgress = () => {
+    const video = document.querySelector("video") as HTMLVideoElement;
+    if (video && video.buffered.length > 0) {
+      const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+      const progress = (bufferedEnd / duration) * 100;
+      setBufferedProgress(progress);
+
+      // Calculate chunk information
+      const loaded =
+        video.buffered.length > 0
+          ? video.buffered.end(video.buffered.length - 1)
+          : 0;
+      setChunkInfo({ loaded, total: duration });
+
+      console.log(
+        `📊 Chunked progress: ${progress.toFixed(1)}% (${loaded.toFixed(
+          1
+        )}s / ${duration.toFixed(1)}s)`
+      );
+    }
+  };
+
+  const handleLoadStart = () => {
+    console.log("🚀 Starting chunked video load...");
+  };
+
+  const handleLoadedData = () => {
+    console.log("📦 Initial chunks loaded");
   };
 
   const formatTime = (time: number) => {
@@ -162,6 +216,7 @@ export default function VideoPage() {
       <div className="relative max-w-6xl mx-auto p-4">
         <div className="relative bg-black rounded-lg overflow-hidden">
           <video
+            ref={videoRef}
             className="w-full h-auto"
             controls={false}
             onTimeUpdate={handleTimeUpdate}
@@ -170,7 +225,12 @@ export default function VideoPage() {
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
             onMouseMove={() => setShowControls(true)}
             onMouseLeave={() => setShowControls(false)}
-            autoPlay
+            onWaiting={handleWaiting}
+            onCanPlay={handleCanPlay}
+            onProgress={handleProgress}
+            onLoadStart={handleLoadStart}
+            onLoadedData={handleLoadedData}
+            preload="metadata"
           >
             <source
               src={`http://localhost:5001/videos/stream/${videoInfo.filename}`}
@@ -186,6 +246,16 @@ export default function VideoPage() {
             }`}
             onMouseMove={() => setShowControls(true)}
           >
+            {/* Buffering Indicator */}
+            {buffering && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                <div className="text-white text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-2"></div>
+                  <p className="text-sm">Loading chunks...</p>
+                </div>
+              </div>
+            )}
+
             {/* Center Play/Pause Button */}
             <div className="absolute inset-0 flex items-center justify-center">
               <button
@@ -204,6 +274,14 @@ export default function VideoPage() {
             <div className="absolute bottom-0 left-0 right-0 p-4">
               {/* Progress Bar */}
               <div className="mb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-white text-xs">
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                  </span>
+                  <span className="text-gray-300 text-xs">
+                    Buffered: {bufferedProgress.toFixed(1)}%
+                  </span>
+                </div>
                 <input
                   type="range"
                   min="0"
@@ -212,6 +290,13 @@ export default function VideoPage() {
                   onChange={handleSeek}
                   className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
                 />
+                {/* Buffering Progress Bar */}
+                <div className="w-full h-1 bg-gray-800 rounded-lg mt-1">
+                  <div
+                    className="h-full bg-blue-500 rounded-lg transition-all duration-300"
+                    style={{ width: `${bufferedProgress}%` }}
+                  ></div>
+                </div>
               </div>
 
               {/* Control Buttons */}
@@ -267,6 +352,13 @@ export default function VideoPage() {
             {videoInfo.duration && (
               <span>Duration: {formatTime(videoInfo.duration)}</span>
             )}
+          </div>
+          {/* Chunk Information */}
+          <div className="mt-2 text-gray-400 text-xs">
+            <span>
+              Chunked Streaming: {chunkInfo.loaded.toFixed(1)}s /{" "}
+              {chunkInfo.total.toFixed(1)}s loaded
+            </span>
           </div>
         </div>
       </div>
