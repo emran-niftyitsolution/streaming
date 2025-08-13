@@ -170,17 +170,17 @@ export default function VideoPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading video...</div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600 text-xl">Loading video...</div>
       </div>
     );
   }
 
   if (error || !videoInfo) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-white text-xl mb-4">
+          <div className="text-red-500 text-xl mb-4">
             {error || "Video not found"}
           </div>
           <button
@@ -196,17 +196,17 @@ export default function VideoPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 p-4">
+      <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push("/")}
-            className="text-gray-300 hover:text-white transition-colors"
+            className="text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-white text-lg font-semibold truncate">
+          <h1 className="text-gray-900 text-lg font-semibold truncate">
             {videoInfo.filename.replace(/\.[^/.]+$/, "")}
           </h1>
         </div>
@@ -214,7 +214,7 @@ export default function VideoPage() {
 
       {/* Video Player */}
       <div className="relative max-w-6xl mx-auto p-4">
-        <div className="relative bg-black rounded-lg overflow-hidden">
+        <div className="relative bg-black rounded-lg overflow-hidden shadow-lg">
           <video
             ref={videoRef}
             className="w-full h-auto"
@@ -228,8 +228,6 @@ export default function VideoPage() {
             onWaiting={handleWaiting}
             onCanPlay={handleCanPlay}
             onProgress={handleProgress}
-            onLoadStart={handleLoadStart}
-            onLoadedData={handleLoadedData}
             preload="metadata"
           >
             <source
@@ -286,7 +284,7 @@ export default function VideoPage() {
                   type="range"
                   min="0"
                   max="100"
-                  value={progressPercentage}
+                  value={duration > 0 ? (currentTime / duration) * 100 : 0}
                   onChange={handleSeek}
                   className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
                 />
@@ -323,34 +321,28 @@ export default function VideoPage() {
                       <Volume2 className="w-6 h-6" />
                     )}
                   </button>
-
-                  <div className="text-white text-sm">
-                    {formatTime(currentTime)} / {formatTime(duration)}
-                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleFullscreen}
-                    className="text-white hover:text-gray-300 transition-colors"
-                  >
-                    <Maximize className="w-6 h-6" />
-                  </button>
-                </div>
+                <button
+                  onClick={handleFullscreen}
+                  className="text-white hover:text-gray-300 transition-colors"
+                >
+                  <Maximize className="w-6 h-6" />
+                </button>
               </div>
             </div>
           </div>
         </div>
 
         {/* Video Info */}
-        <div className="mt-6 text-white">
-          <h2 className="text-2xl font-bold mb-2">
+        <div className="mt-6 bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
             {videoInfo.filename.replace(/\.[^/.]+$/, "")}
           </h2>
-          <div className="flex items-center gap-4 text-gray-300 text-sm">
-            <span>Size: {videoInfo.sizeFormatted}</span>
+          <div className="text-gray-600 text-sm">
+            <p>Size: {videoInfo.sizeFormatted}</p>
             {videoInfo.duration && (
-              <span>Duration: {formatTime(videoInfo.duration)}</span>
+              <p>Duration: {Math.round(videoInfo.duration)} seconds</p>
             )}
           </div>
           {/* Chunk Information */}
@@ -362,26 +354,6 @@ export default function VideoPage() {
           </div>
         </div>
       </div>
-
-      <style jsx>{`
-        .slider::-webkit-slider-thumb {
-          appearance: none;
-          height: 16px;
-          width: 16px;
-          border-radius: 50%;
-          background: #ef4444;
-          cursor: pointer;
-        }
-
-        .slider::-moz-range-thumb {
-          height: 16px;
-          width: 16px;
-          border-radius: 50%;
-          background: #ef4444;
-          cursor: pointer;
-          border: none;
-        }
-      `}</style>
     </div>
   );
 }

@@ -1,11 +1,7 @@
-"use client";
-
 import axios from "axios";
 import { Play } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import VideoUploadModal from "./components/VideoUploadModal";
+import Link from "next/link";
 
 interface VideoInfo {
   filename: string;
@@ -14,85 +10,42 @@ interface VideoInfo {
   thumbnailUrl: string;
 }
 
-export default function Home() {
-  const [videos, setVideos] = useState<VideoInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const router = useRouter();
-
-  const fetchVideos = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get("http://localhost:5001/videos");
-      setVideos(response.data);
-    } catch (err) {
-      setError("Failed to load videos");
-      console.error("Error fetching videos:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchVideos();
-  }, []);
-
-  const handleVideoClick = (filename: string) => {
-    router.push(`/video/${filename}`);
-  };
-
-  const handleUploadSuccess = () => {
-    fetchVideos();
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading videos...</div>
-      </div>
-    );
+async function getVideos(): Promise<VideoInfo[]> {
+  try {
+    const response = await axios.get("http://localhost:5001/videos");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching videos:", error);
+    return [];
   }
+}
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-400 text-xl mb-4">{error}</div>
-          <button
-            onClick={fetchVideos}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+export default async function Home() {
+  const videos = await getVideos();
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6">
+    <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-white">Video Streamer</h1>
-          <button
-            onClick={() => setShowUploadModal(true)}
+          <h1 className="text-3xl font-bold text-gray-900">Video Streamer</h1>
+          <Link
+            href="/upload"
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Upload Video
-          </button>
+          </Link>
         </div>
 
         {videos.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {videos.map((video) => (
-              <div
+              <Link
                 key={video.filename}
-                className="bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-700 transition-colors"
-                onClick={() => handleVideoClick(video.filename)}
+                href={`/video/${video.filename}`}
+                className="bg-white rounded-lg overflow-hidden cursor-pointer hover:bg-gray-50 transition-colors shadow-sm border border-gray-200 group"
               >
                 <div
-                  className="relative bg-gray-700"
+                  className="relative bg-gray-100"
                   style={{ height: "200px", minHeight: "200px" }}
                 >
                   <Image
@@ -101,36 +54,30 @@ export default function Home() {
                     fill
                     className="object-cover"
                   />
-                  <div className="absolute inset-0  bg-opacity-0 hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
-                    <Play className="w-12 h-12 text-white opacity-0 hover:opacity-100 transition-opacity" />
+                  <div className="absolute inset-0 group-hover:bg-black/20 transition-all duration-200 flex items-center justify-center">
+                    <Play className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
                 <div className="p-4">
-                  <h3 className="text-white font-semibold text-sm mb-2 truncate">
+                  <h3 className="text-gray-900 font-semibold text-sm mb-2 truncate">
                     {video.filename.replace(/\.[^/.]+$/, "")}
                   </h3>
-                  <div className="flex items-center justify-between text-gray-400 text-xs">
+                  <div className="flex items-center justify-between text-gray-500 text-xs">
                     <span>{video.sizeFormatted}</span>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         ) : (
           <div className="text-center py-12">
-            <div className="text-gray-400 text-lg">No videos found</div>
-            <p className="text-gray-500 mt-2">
+            <div className="text-gray-500 text-lg">No videos found</div>
+            <p className="text-gray-400 mt-2">
               Add some videos to the data folder to get started
             </p>
           </div>
         )}
       </div>
-
-      <VideoUploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        onUploadSuccess={handleUploadSuccess}
-      />
     </div>
   );
 }
