@@ -5,7 +5,7 @@ import { Play } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import VideoUpload from "./components/VideoUpload";
+import VideoUploadModal from "./components/VideoUploadModal";
 
 interface VideoInfo {
   filename: string;
@@ -18,7 +18,7 @@ export default function Home() {
   const [videos, setVideos] = useState<VideoInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const router = useRouter();
 
   const fetchVideos = async () => {
@@ -44,7 +44,6 @@ export default function Home() {
 
   const handleUploadSuccess = () => {
     fetchVideos();
-    setShowUpload(false);
   };
 
   if (loading) {
@@ -77,18 +76,12 @@ export default function Home() {
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-white">Video Streamer</h1>
           <button
-            onClick={() => setShowUpload(!showUpload)}
+            onClick={() => setShowUploadModal(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
-            {showUpload ? "Cancel Upload" : "Upload Video"}
+            Upload Video
           </button>
         </div>
-
-        {showUpload && (
-          <div className="mb-8">
-            <VideoUpload onUploadSuccess={handleUploadSuccess} />
-          </div>
-        )}
 
         {videos.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -132,6 +125,12 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      <VideoUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onUploadSuccess={handleUploadSuccess}
+      />
     </div>
   );
 }

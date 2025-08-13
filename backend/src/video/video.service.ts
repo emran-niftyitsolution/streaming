@@ -524,14 +524,24 @@ export class VideoService {
       const file = this.createVideoStream(streamInfo, requestId);
       this.setupStreamEventHandlers(file, streamInfo, requestId, startTime);
 
+      // Handle stream errors
       file.on('error', (error: Error) => {
+        this.logger.error(`[${requestId}] ❌ Stream error:`, error.message);
         if (!res.headersSent) {
           res.status(500).json({
             error: 'Streaming error',
             requestId,
             details: error.message,
           });
+        } else {
+          res.end();
         }
+      });
+
+      // Handle client disconnect
+      res.on('close', () => {
+        this.logger.log(`[${requestId}] 🔌 Client disconnected`);
+        file.destroy();
       });
 
       this.logger.log(`[${requestId}] 🔄 Piping file stream to response...`);

@@ -156,7 +156,15 @@ export default function VideoUpload({ onUploadSuccess }: VideoUploadProps) {
               </p>
 
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  console.log('Choose File button clicked');
+                  if (fileInputRef.current) {
+                    console.log('File input found, triggering click');
+                    fileInputRef.current.click();
+                  } else {
+                    console.error('File input ref not found');
+                  }
+                }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
               >
                 Choose File
@@ -167,7 +175,13 @@ export default function VideoUpload({ onUploadSuccess }: VideoUploadProps) {
               ref={fileInputRef}
               type="file"
               accept=".mp4,.avi,.mov,.mkv,.webm"
-              onChange={handleFileSelect}
+              onChange={(e) => {
+                console.log('File input change event triggered');
+                if (e.target.files && e.target.files[0]) {
+                  console.log('File selected:', e.target.files[0].name);
+                  handleFileUpload(e.target.files[0]);
+                }
+              }}
               className="hidden"
             />
           </>
