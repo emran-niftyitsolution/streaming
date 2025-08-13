@@ -18,17 +18,18 @@ export interface VideoInfo {
   filename: string;
   size: number;
   sizeFormatted: string;
-  duration?: number;
   thumbnailUrl: string;
+  duration?: number;
 }
 
 export interface StreamInfo {
+  filename: string;
   videoPath: string;
   fileSize: number;
+  isRangeRequest: boolean;
   start: number;
   end: number;
   chunksize: number;
-  isRangeRequest: boolean;
 }
 
 @Injectable()
@@ -61,6 +62,9 @@ export class VideoService {
         });
       }
 
+      // Generate thumbnails in the background
+      await this.generateThumbnailsForAllVideos(videoInfos);
+
       return videoInfos;
     } catch (error) {
       console.error('Error reading video directory:', error);
@@ -68,31 +72,13 @@ export class VideoService {
     }
   }
 
-  async getVideoInfo(filename: string): Promise<VideoInfo | null> {
-    try {
-      const filePath = join(this.dataPath, filename);
-      const fileStats = await stat(filePath);
-
-      return {
-        filename,
-        size: fileStats.size,
-        sizeFormatted: this.formatFileSize(fileStats.size),
-        thumbnailUrl: `/videos/thumbnail/${filename}`,
-      };
-    } catch (error) {
-      return null;
-    }
-  }
-
   async generateThumbnailsForAllVideos(
     videos: { filename: string }[],
   ): Promise<void> {
-    const requestId = Math.random().toString(36).substring(7);
-    this.logger.log(
-      `[${requestId}] 🖼️ Generating thumbnails for ${videos.length} videos`,
-    );
+    this.logger.log(`🖼️ Generating thumbnails for ${videos.length} videos`);
 
     for (const video of videos) {
+      const requestId = Math.random().toString(36).substring(7);
       try {
         await this.generateThumbnailForVideo(video.filename, requestId);
       } catch (error) {
@@ -103,9 +89,7 @@ export class VideoService {
       }
     }
 
-    this.logger.log(
-      `[${requestId}] ✅ Thumbnail generation completed for all videos`,
-    );
+    this.logger.log('✅ Thumbnail generation completed for all videos');
   }
 
   async generateThumbnailForVideo(
@@ -141,7 +125,7 @@ export class VideoService {
       this.logger.debug(
         `[${requestId}] ✅ Generated JPG thumbnail for ${filename}`,
       );
-    } catch (error) {
+    } catch {
       this.logger.debug(
         `[${requestId}] ⚠️ ffmpegthumbnailer failed for ${filename}, falling back to SVG`,
       );
@@ -154,33 +138,13 @@ export class VideoService {
     }
   }
 
-  async getThumbnailPath(
-    filename: string,
-  ): Promise<{ path: string; type: string } | null> {
-    const videoPath = join(this.dataPath, filename);
-    const thumbnailsDir = join(this.dataPath, 'thumbnails');
-    const jpgThumbnailPath = join(thumbnailsDir, `${filename}.jpg`);
-    const svgThumbnailPath = join(thumbnailsDir, `${filename}.svg`);
-
-    // Check if video exists
-    if (!existsSync(videoPath)) {
-      return null;
-    }
-
-    // Check if thumbnails exist
-    if (existsSync(jpgThumbnailPath)) {
-      return { path: jpgThumbnailPath, type: 'image/jpeg' };
-    } else if (existsSync(svgThumbnailPath)) {
-      return { path: svgThumbnailPath, type: 'image/svg+xml' };
-    }
-
-    return null;
-  }
-
   async generateThumbnailResponse(
     filename: string,
-    requestId: string,
-  ): Promise<{ path: string; type: string } | null> {
+    res: Response,
+  ): Promise<void> {
+    const requestId = Math.random().toString(36).substring(7);
+    this.logger.log(`[${requestId}] 🖼️ Generating thumbnail for: ${filename}`);
+
     const videoPath = join(this.dataPath, filename);
     const thumbnailsDir = join(this.dataPath, 'thumbnails');
     const jpgThumbnailPath = join(thumbnailsDir, `${filename}.jpg`);
@@ -188,7 +152,9 @@ export class VideoService {
 
     // Check if video exists
     if (!existsSync(videoPath)) {
-      return null;
+      this.logger.error(`[${requestId}] ❌ Video not found: ${filename}`);
+      res.status(404).json({ error: 'Video not found' });
+      return;
     }
 
     // Check if thumbnail already exists
@@ -196,12 +162,18 @@ export class VideoService {
       this.logger.log(
         `[${requestId}] ✅ JPG thumbnail exists, serving cached version`,
       );
-      return { path: jpgThumbnailPath, type: 'image/jpeg' };
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.sendFile(jpgThumbnailPath);
+      return;
     } else if (existsSync(svgThumbnailPath)) {
       this.logger.log(
         `[${requestId}] ✅ SVG thumbnail exists, serving cached version`,
       );
-      return { path: svgThumbnailPath, type: 'image/svg+xml' };
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.sendFile(svgThumbnailPath);
+      return;
     }
 
     // Create thumbnails directory if it doesn't exist
@@ -223,8 +195,10 @@ export class VideoService {
       await execAsync(command);
 
       this.logger.log(`[${requestId}] ✅ Thumbnail generated successfully`);
-      return { path: jpgThumbnailPath, type: 'image/jpeg' };
-    } catch (error) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.sendFile(jpgThumbnailPath);
+    } catch {
       this.logger.log(`[${requestId}] 🔄 Falling back to SVG thumbnail`);
       const svgThumbnail = this.generateSVGThumbnail(filename, fileStats.size);
 
@@ -232,38 +206,71 @@ export class VideoService {
       writeFileSync(svgThumbnailPath, svgThumbnail);
       this.logger.log(`[${requestId}] 💾 Saved SVG thumbnail to cache`);
 
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.sendFile(svgThumbnailPath);
+    }
+  }
+
+  getThumbnailPath(filename: string): { path: string; type: string } | null {
+    const thumbnailsDir = join(this.dataPath, 'thumbnails');
+    const jpgThumbnailPath = join(thumbnailsDir, `${filename}.jpg`);
+    const svgThumbnailPath = join(thumbnailsDir, `${filename}.svg`);
+
+    if (existsSync(jpgThumbnailPath)) {
+      return { path: jpgThumbnailPath, type: 'image/jpeg' };
+    } else if (existsSync(svgThumbnailPath)) {
       return { path: svgThumbnailPath, type: 'image/svg+xml' };
+    }
+
+    return null;
+  }
+
+  async getVideoInfo(filename: string): Promise<VideoInfo | { error: string }> {
+    try {
+      const videoPath = join(this.dataPath, filename);
+      const fileStats = await stat(videoPath);
+
+      return {
+        filename,
+        size: fileStats.size,
+        sizeFormatted: this.formatFileSize(fileStats.size),
+        thumbnailUrl: `/videos/thumbnail/${filename}`,
+      };
+    } catch {
+      return { error: 'Video not found' };
     }
   }
 
   getStreamInfo(filename: string, range: string | undefined): StreamInfo {
     const videoPath = join(this.dataPath, filename);
-    const stat = statSync(videoPath);
-    const fileSize = stat.size;
+    const fileSize = statSync(videoPath).size;
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = end - start + 1;
-
+    if (!range) {
       return {
+        filename,
         videoPath,
         fileSize,
-        start,
-        end,
-        chunksize,
-        isRangeRequest: true,
+        isRangeRequest: false,
+        start: 0,
+        end: fileSize - 1,
+        chunksize: fileSize,
       };
     }
 
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = end - start + 1;
+
     return {
+      filename,
       videoPath,
       fileSize,
-      start: 0,
-      end: fileSize - 1,
-      chunksize: fileSize,
-      isRangeRequest: false,
+      isRangeRequest: true,
+      start,
+      end,
+      chunksize,
     };
   }
 
@@ -280,7 +287,7 @@ export class VideoService {
     if (start >= fileSize || end >= fileSize || start > end) {
       return {
         valid: false,
-        error: `Invalid range: start=${start}, end=${end}, fileSize=${fileSize}`,
+        error: `Range ${start}-${end} is not satisfiable for file size ${fileSize}`,
       };
     }
 
@@ -298,10 +305,9 @@ export class VideoService {
       const headers = {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
-        'Content-Length': chunksize,
+        'Content-Length': chunksize.toString(),
         'Content-Type': 'video/mp4',
         'Cache-Control': 'no-cache',
-        'X-Request-ID': requestId,
       };
 
       this.logger.log(
@@ -311,11 +317,10 @@ export class VideoService {
       res.writeHead(206, headers);
     } else {
       const headers = {
-        'Content-Length': fileSize,
+        'Content-Length': fileSize.toString(),
         'Content-Type': 'video/mp4',
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
-        'X-Request-ID': requestId,
       };
 
       this.logger.log(
@@ -326,7 +331,7 @@ export class VideoService {
     }
   }
 
-  createVideoStream(streamInfo: StreamInfo, requestId: string): any {
+  createVideoStream(streamInfo: StreamInfo, requestId: string) {
     const { videoPath, start, end, isRangeRequest } = streamInfo;
 
     if (isRangeRequest) {
@@ -343,7 +348,7 @@ export class VideoService {
   }
 
   setupStreamEventHandlers(
-    file: any,
+    file: NodeJS.ReadableStream,
     streamInfo: StreamInfo,
     requestId: string,
     startTime: number,
@@ -382,13 +387,15 @@ export class VideoService {
     });
   }
 
-  async streamVideo(
+  streamVideo(
     filename: string,
     range: string | undefined,
     res: Response,
-    requestId: string,
-  ): Promise<void> {
+  ): void {
+    const requestId = Math.random().toString(36).substring(7);
     const startTime = Date.now();
+
+    this.logger.log(`[${requestId}] 🎬 Starting video stream for: ${filename}`);
 
     try {
       this.logger.log(
@@ -453,43 +460,27 @@ export class VideoService {
 
   private generateSVGThumbnail(filename: string, fileSize: number): string {
     const sizeFormatted = this.formatBytes(fileSize);
-    const videoName = filename.replace(/\.[^/.]+$/, ''); // Remove extension
+    const name = filename.replace(/\.[^/.]+$/, '');
 
-    return `
-      <svg width="320" height="240" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <rect width="320" height="240" fill="url(#grad1)"/>
-        <circle cx="160" cy="100" r="40" fill="rgba(255,255,255,0.2)"/>
-        <polygon points="150,80 150,120 180,100" fill="white"/>
-        <text x="160" y="160" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="14" font-weight="bold">${videoName}</text>
-        <text x="160" y="180" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12">${sizeFormatted}</text>
-        <text x="160" y="200" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10">Click to play</text>
-      </svg>
-    `;
+    return `<svg width="320" height="180" xmlns="http://www.w3.org/2000/svg">
+      <rect width="320" height="180" fill="#1f2937"/>
+      <rect x="10" y="10" width="300" height="160" fill="#374151" rx="8"/>
+      <circle cx="160" cy="90" r="25" fill="#6b7280"/>
+      <polygon points="150,80 150,100 170,90" fill="white"/>
+      <text x="160" y="130" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12">${name}</text>
+      <text x="160" y="145" text-anchor="middle" fill="#9ca3af" font-family="Arial, sans-serif" font-size="10">${sizeFormatted}</text>
+    </svg>`;
   }
 
-  private formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  formatFileSize(bytes: number): string {
+    return this.formatBytes(bytes);
   }
 
   formatBytes(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
-
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }
