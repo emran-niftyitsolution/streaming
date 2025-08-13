@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Headers,
@@ -22,10 +23,57 @@ export class VideoController {
   }
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('video'))
+  @UseInterceptors(
+    FileInterceptor('video', {
+      storage: undefined, // Use memory storage for chunked processing
+      limits: {
+        fileSize: 500 * 1024 * 1024, // 500MB limit
+      },
+    }),
+  )
   uploadVideo(@UploadedFile() file: Express.Multer.File) {
     const requestId = Math.random().toString(36).substring(7);
     return this.videoService.uploadVideo(file, requestId);
+  }
+
+  @Post('upload-chunk')
+  @UseInterceptors(
+    FileInterceptor('chunk', {
+      storage: undefined,
+      limits: {
+        fileSize: 2 * 1024 * 1024, // 2MB per chunk
+      },
+    }),
+  )
+  async uploadChunk(
+    @UploadedFile() chunk: Express.Multer.File,
+    @Body()
+    body: {
+      chunkNumber: string;
+      totalChunks: string;
+      filename: string;
+      fileSize: string;
+    },
+  ) {
+    const requestId = Math.random().toString(36).substring(7);
+    const result = await this.videoService.handleChunkUpload(
+      chunk,
+      body,
+      requestId,
+    );
+    return result;
+  }
+
+  @Post('finalize-upload')
+  async finalizeUpload(
+    @Body() body: { filename: string; totalChunks: string; fileSize: string },
+  ) {
+    const requestId = Math.random().toString(36).substring(7);
+    const result = await this.videoService.finalizeChunkedUpload(
+      body,
+      requestId,
+    );
+    return result;
   }
 
   @Get('thumbnail/:filename')

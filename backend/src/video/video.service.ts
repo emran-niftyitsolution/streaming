@@ -6,10 +6,12 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  rmdirSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'fs';
-import { readdir, stat } from 'fs/promises';
+import { readdir, readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { promisify } from 'util';
 
@@ -566,6 +568,133 @@ export class VideoService {
           },
         });
       }
+    }
+  }
+
+  async finalizeChunkedUpload(
+    body: { filename: string; totalChunks: string; fileSize: string },
+    requestId: string,
+  ): Promise<UploadResult> {
+    try {
+      const { filename, totalChunks, fileSize } = body;
+      const chunksPath = join(this.dataPath, 'chunks', filename);
+      const finalPath = join(this.dataPath, filename);
+
+      this.logger.log(
+        `[${requestId}] 🎯 Finalizing chunked upload: ${filename}`,
+      );
+
+      // Check if all chunks exist
+      const expectedChunks = parseInt(totalChunks);
+      const chunkFiles: string[] = [];
+
+      for (let i = 1; i <= expectedChunks; i++) {
+        const chunkPath = join(chunksPath, `chunk_${i}`);
+        if (!existsSync(chunkPath)) {
+          throw new Error(`Missing chunk ${i}`);
+        }
+        chunkFiles.push(chunkPath);
+      }
+
+      // Combine chunks into final file
+      const writeStream = createWriteStream(finalPath);
+
+      for (const chunkPath of chunkFiles) {
+        const chunkBuffer = await readFile(chunkPath);
+        writeStream.write(chunkBuffer);
+      }
+
+      writeStream.end();
+
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', () => resolve());
+        writeStream.on('error', reject);
+      });
+
+      // Clean up chunk files
+      for (const chunkPath of chunkFiles) {
+        unlinkSync(chunkPath);
+      }
+
+      // Remove chunks directory
+      if (existsSync(chunksPath)) {
+        rmdirSync(chunksPath);
+      }
+
+      this.logger.log(
+        `[${requestId}] ✅ Chunked upload finalized: ${filename}`,
+      );
+
+      // Generate thumbnail in background
+      this.generateThumbnailForVideo(filename, requestId).catch((error) => {
+        this.logger.error(
+          `[${requestId}] ❌ Thumbnail generation failed: ${error.message}`,
+        );
+      });
+
+      return {
+        success: true,
+        filename,
+        size: parseInt(fileSize),
+        sizeFormatted: this.formatBytes(parseInt(fileSize)),
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`[${requestId}] ❌ Finalize failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: 'Failed to finalize upload',
+      };
+    }
+  }
+
+  async handleChunkUpload(
+    chunk: Express.Multer.File,
+    body: {
+      chunkNumber: string;
+      totalChunks: string;
+      filename: string;
+      fileSize: string;
+    },
+    requestId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { chunkNumber, totalChunks, filename, fileSize } = body;
+
+      this.logger.log(
+        `[${requestId}] 📤 Receiving chunk ${chunkNumber}/${totalChunks} for ${filename}`,
+      );
+
+      // Create chunks directory
+      const chunksPath = join(this.dataPath, 'chunks', filename);
+      if (!existsSync(chunksPath)) {
+        mkdirSync(chunksPath, { recursive: true });
+      }
+
+      // Save chunk
+      const chunkPath = join(chunksPath, `chunk_${chunkNumber}`);
+      const writeStream = createWriteStream(chunkPath);
+      writeStream.write(chunk.buffer);
+      writeStream.end();
+
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', () => resolve());
+        writeStream.on('error', reject);
+      });
+
+      this.logger.log(
+        `[${requestId}] ✅ Chunk ${chunkNumber}/${totalChunks} saved: ${this.formatBytes(chunk.size)}`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `[${requestId}] ❌ Chunk upload failed: ${errorMessage}`,
+      );
+      return { success: false, error: 'Failed to save chunk' };
     }
   }
 
