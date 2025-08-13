@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thumbnail Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .thumbnail { width: 320px; height: 240px; border: 1px solid #ccc; margin: 10px; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Thumbnail Test</h1>
+    <div id="status"></div>
+    <div id="thumbnails"></div>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const thumbnailsDiv = document.getElementById('thumbnails');
+
+        async function testThumbnails() {
+            try {
+                // Test video list API
+                statusDiv.innerHTML = '<p>Testing video list API...</p>';
+                const response = await fetch('http://localhost:5001/videos');
+                const videos = await response.json();
+                
+                statusDiv.innerHTML = `<p class="success">✅ Found ${videos.length} videos</p>`;
+                
+                // Test each thumbnail
+                videos.forEach(video => {
+                    const img = document.createElement('img');
+                    img.className = 'thumbnail';
+                    img.alt = video.filename;
+                    img.src = `http://localhost:5001${video.thumbnailUrl}`;
+                    
+                    img.onload = () => {
+                        console.log(`✅ Thumbnail loaded: ${video.filename}`);
+                    };
+                    
+                    img.onerror = () => {
+                        console.error(`❌ Thumbnail failed: ${video.filename}`);
+                        img.style.border = '2px solid red';
+                    };
+                    
+                    thumbnailsDiv.appendChild(img);
+                });
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+                console.error('Error:', error);
+            }
+        }
+
+        testThumbnails();
+    </script>
+</body>
+</html>
